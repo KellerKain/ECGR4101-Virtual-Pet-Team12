@@ -69,7 +69,7 @@ static uint8_t Joystick_Read(void)
   return state;
 }
 
-/**
+/**>>
   * @brief  The application entry point.
   * @retval int
   */
