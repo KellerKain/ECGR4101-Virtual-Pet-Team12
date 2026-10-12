@@ -243,3 +243,46 @@ void ILI9341_DrawString(uint16_t x, uint16_t y, const char *str, uint16_t color,
         x = (uint16_t)(x + (GFX_FONT5X7_WIDTH + 1) * size);
     }
 }
+
+
+// Added Function
+void ILI9341_DrawImage(uint16_t x, uint16_t y, uint16_t w, uint16_t h, const uint16_t *image)
+{
+    static uint8_t row_buf[ILI9341_WIDTH * 2];
+
+    uint16_t row, col;
+
+    if ((x >= ILI9341_WIDTH) || (y >= ILI9341_HEIGHT))
+    {
+        return;
+    }
+
+    if ((uint32_t)(x + w) > ILI9341_WIDTH)
+        w = ILI9341_WIDTH - x;
+
+    if ((uint32_t)(y + h) > ILI9341_HEIGHT)
+        h = ILI9341_HEIGHT - y;
+
+    LCD_SetAddressWindow(x, y, x + w - 1, y + h - 1);
+
+    HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin, GPIO_PIN_SET);
+    LCD_CS_Low();
+
+    for (row = 0; row < h; row++)
+    {
+        for (col = 0; col < w; col++)
+        {
+            uint16_t pixel = image[row * w + col];
+
+            row_buf[2 * col]     = pixel >> 8;
+            row_buf[2 * col + 1] = pixel & 0xFF;
+        }
+
+        HAL_SPI_Transmit(ili9341_hspi,
+                         row_buf,
+                         w * 2,
+                         HAL_MAX_DELAY);
+    }
+
+    LCD_CS_High();
+}

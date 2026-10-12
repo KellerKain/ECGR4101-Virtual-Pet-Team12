@@ -4,10 +4,10 @@
   * @file           : main.c
   * @brief          : X-NUCLEO-GFX01M2 LCD demo for the NUCLEO-L496ZG-P
   *
-  * This demo drives the 2.2" ILI9341 QVGA display on the X-NUCLEO-GFX01M2
-  * expansion board over SPI1 and cycles through a few simple graphics demos:
-  * color bars, filled/outlined shapes, text, and a live joystick (B1)
-  * readout. See Drivers/BSP/GFX01M2 for the small display driver used here.
+  * 
+  * 
+  * 
+  * 
   *
   * WIRING - the GFX01M2 plugs directly onto the top of this board's CN11/CN12
   * ST Morpho headers. NOTE: ST's own datasheet (DB4236) only lists Nucleo-64
@@ -34,19 +34,45 @@
 #include "main.h"
 #include "ili9341.h"
 #include "gfx01m2_conf.h"
+#include <sys/types.h>
+
+// Image Files: Keep limited for space
+#include "StandingRKnight_1.h"
+#include "KneelingRKnight_1.h"
+#include "FightingRKnight_1.h"
+#include "stm32l4xx_hal.h"
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
+
+typedef enum {
+  STATE_IDLE = 0,
+  STATE_FEED,
+  STATE_PLAY,
+  STATE_PET,
+  STATE_HUNGRY,
+  STATE_DEAD,
+  STATE_COUNT
+} petState_t;
+
+static u_int8_t happiness = 100;
+static u_int8_t hunger = 100;
+static u_int8_t cursor = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 
-static void Demo_ColorBars(void);
-static void Demo_Shapes(void);
-static void Demo_Text(void);
-static void Demo_Joystick(void);
+static petState_t runStateIdle(void);
+static petState_t runStateFeed(void);
+static petState_t runStatePlay(void);
+static petState_t runStatePet(void);
+static petState_t runStateHungry(void);
+static petState_t runStateDead(void);
+
+static void drawMenu(void);
+static void drawStatBars(void);
 
 /* Joystick (B1) bit flags returned by Joystick_Read() */
 #define JOY_LEFT_MASK   (1U << 0)
@@ -87,109 +113,183 @@ int main(void)
 
   /* Initialize the LCD and show a splash screen */
   ILI9341_Init(&hspi1);
-  ILI9341_DrawString(18, 12, "GFX01M2 LCD DEMO", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
-  ILI9341_DrawString(30, 40, "NUCLEO-L496ZG-P", ILI9341_COLOR_CYAN, ILI9341_COLOR_BLACK, 1);
+  ILI9341_FillScreen(ILI9341_COLOR_BLACK);
   HAL_Delay(2000);
 
+  ILI9341_DrawRect(2, 250, 236, 68, ILI9341_COLOR_WHITE);
+  ILI9341_DrawRect(2, 242, 102, 6, ILI9341_COLOR_WHITE);
+  ILI9341_DrawRect(136, 242, 102, 6, ILI9341_COLOR_WHITE);
+  drawMenu();
+  ILI9341_DrawString(98, 290, "KILL", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+
+  petState_t current_state = STATE_IDLE;
+  petState_t next_state = STATE_IDLE;
+  
   /* Infinite loop: cycle through the demo pages */
   while (1)
   {
-    Demo_ColorBars();
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    HAL_Delay(1500);
-
-    Demo_Shapes();
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    HAL_Delay(1500);
-
-    Demo_Text();
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-    HAL_Delay(1500);
-
-    Demo_Joystick();
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    drawStatBars();
+    
+    switch (current_state)
+    {
+      case STATE_IDLE:
+        next_state = runStateIdle();
+        break;
+      case STATE_FEED:
+        next_state = runStateFeed();
+        break;
+      case STATE_PLAY:
+        next_state = runStatePlay();
+        break;
+      case STATE_PET:
+        next_state = runStatePet();
+        break;
+      case STATE_HUNGRY:
+        next_state = runStateHungry();
+        break;
+      case STATE_DEAD:
+        next_state = runStateDead();
+        break;
+      default:
+        next_state = STATE_IDLE;
+        break;
+    }
+    
+    current_state = next_state;
   }
 }
 
-/**
-  * @brief  Fills the screen with a set of vertical color bars.
-  */
-static void Demo_ColorBars(void)
-{
-  static const uint16_t colors[] =
-  {
-    ILI9341_COLOR_WHITE, ILI9341_COLOR_YELLOW, ILI9341_COLOR_CYAN, ILI9341_COLOR_GREEN,
-    ILI9341_COLOR_MAGENTA, ILI9341_COLOR_RED, ILI9341_COLOR_BLUE, ILI9341_COLOR_ORANGE
-  };
-  const uint16_t bar_count = sizeof(colors) / sizeof(colors[0]);
-  const uint16_t bar_width = ILI9341_WIDTH / bar_count;
-  uint16_t i;
+static petState_t runStateIdle(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PET IS IDLE.", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  
+  uint8_t button = 0;
+  uint8_t stateChanged = 0;
 
-  for (i = 0; i < bar_count; i++)
-  {
-    ILI9341_FillRect((uint16_t)(i * bar_width), 0, bar_width, ILI9341_HEIGHT, colors[i]);
+  while(button != JOY_CENTER_MASK) {
+    button = Joystick_Read();
+
+    switch(button) { 
+      case JOY_RIGHT_MASK:
+        cursor = (cursor + 1) % 3;
+        stateChanged = 1;
+        break;
+
+      case JOY_LEFT_MASK:
+        cursor = (cursor == 0) ? 2 : cursor - 1;
+        stateChanged = 1;
+        break;
+
+      default:
+        break;
+    }
+
+    if (stateChanged) drawMenu();
+  }
+
+  switch(cursor) {
+    case 0:
+      return STATE_PLAY;
+    case 1:
+      return STATE_PET;
+    case 2:
+      return STATE_FEED;
+    default:
+      return STATE_IDLE;
   }
 }
 
-/**
-  * @brief  Draws a handful of filled and outlined shapes.
-  */
-static void Demo_Shapes(void)
-{
-  ILI9341_FillScreen(ILI9341_COLOR_BLACK);
-
-  ILI9341_FillRect(20, 20, 80, 60, ILI9341_COLOR_RED);
-  ILI9341_DrawRect(120, 20, 80, 60, ILI9341_COLOR_GREEN);
-
-  ILI9341_DrawLine(20, 110, 220, 110, ILI9341_COLOR_WHITE);
-  ILI9341_DrawLine(20, 110, 220, 260, ILI9341_COLOR_YELLOW);
-  ILI9341_DrawLine(220, 110, 20, 260, ILI9341_COLOR_CYAN);
-
-  ILI9341_FillRect(70, 220, 100, 40, ILI9341_COLOR_BLUE);
-  ILI9341_DrawRect(65, 215, 110, 50, ILI9341_COLOR_WHITE);
+static petState_t runStateFeed(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  HAL_Delay(2000);
+  hunger = 100;
+  return STATE_IDLE;
 }
 
-/**
-  * @brief  Demonstrates text rendering at a few different sizes.
-  */
-static void Demo_Text(void)
-{
-  ILI9341_FillScreen(ILI9341_COLOR_BLACK);
-
-  ILI9341_DrawString(10, 20, "HELLO CLASS!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 3);
-  ILI9341_DrawString(10, 60, "ILI9341 QVGA TFT", ILI9341_COLOR_GREEN, ILI9341_COLOR_BLACK, 2);
-  ILI9341_DrawString(10, 90, "DRIVEN OVER SPI1", ILI9341_COLOR_GREEN, ILI9341_COLOR_BLACK, 2);
-  ILI9341_DrawString(10, 130, "TRY CHANGING THE", ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK, 1);
-  ILI9341_DrawString(10, 145, "COLORS AND TEXT IN", ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK, 1);
-  ILI9341_DrawString(10, 160, "DEMO TEXT() IN MAIN.C", ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK, 1);
+static petState_t runStatePlay(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  HAL_Delay(2000);
+  happiness = 100;
+  hunger -= 10;
+  return STATE_IDLE;
 }
 
-/**
-  * @brief  Live joystick (B1) status readout for a few seconds.
-  */
-static void Demo_Joystick(void)
-{
-  uint32_t start = HAL_GetTick();
-  char line[] = "L:_ C:_ D:_ R:_ U:_";
-
-  ILI9341_FillScreen(ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "JOYSTICK TEST", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
-  ILI9341_DrawString(10, 40, "MOVE THE STICK (B1)", ILI9341_COLOR_YELLOW, ILI9341_COLOR_BLACK, 1);
-
-  while ((HAL_GetTick() - start) < 5000U)
-  {
-    uint8_t joy = Joystick_Read();
-
-    line[2]  = (joy & JOY_LEFT_MASK)   ? '1' : '0';
-    line[6]  = (joy & JOY_CENTER_MASK) ? '1' : '0';
-    line[10] = (joy & JOY_DOWN_MASK)   ? '1' : '0';
-    line[14] = (joy & JOY_RIGHT_MASK)  ? '1' : '0';
-    line[18] = (joy & JOY_UP_MASK)     ? '1' : '0';
-
-    ILI9341_DrawString(10, 70, line, ILI9341_COLOR_GREEN, ILI9341_COLOR_BLACK, 2);
-    HAL_Delay(50);
-  }
+static petState_t runStatePet(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  HAL_Delay(2000);
+  happiness -= 10;
+  return STATE_IDLE;
 }
+
+static petState_t runStateHungry(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PET STARVED!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  HAL_Delay(2000);
+  return STATE_DEAD;
+}
+
+static petState_t runStateDead(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PET IS DEAD!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  u_int8_t button = 0;
+
+  while(button == 0) {button = Joystick_Read();}
+  hunger = 100;
+  happiness = 100;
+  
+  return STATE_IDLE;
+}
+
+static void drawMenu(void) {
+    if(cursor != 0) ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+    if(cursor != 1) ILI9341_DrawString(103, 260, "PET", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+    if(cursor != 2) ILI9341_DrawString(163, 260, "FEED", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+    
+    switch(cursor) {
+      case 0:
+        ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+        HAL_Delay(50);
+        break;
+      case 1:
+        ILI9341_DrawString(103, 260, "PET", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+        HAL_Delay(50);
+        break;
+      case 2:
+        ILI9341_DrawString(163, 260, "FEED", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+        HAL_Delay(50);
+        break;
+    }
+}
+
+static void drawStatBars(void) {
+  ILI9341_FillRect(3, 243, hunger, 4, ILI9341_COLOR_WHITE);
+  ILI9341_FillRect(3 + hunger, 243, 100 - hunger, 4, ILI9341_COLOR_BLACK);
+
+  ILI9341_FillRect(137, 243, happiness, 4, ILI9341_COLOR_WHITE);
+  ILI9341_FillRect(137 + happiness, 243, 100 - happiness, 4, ILI9341_COLOR_BLACK);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /**
   * @brief SPI1 Initialization Function
