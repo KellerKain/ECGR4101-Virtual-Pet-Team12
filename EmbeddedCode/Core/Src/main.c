@@ -262,9 +262,37 @@ static petState_t runStateHungry(void) {
 static petState_t runStateDead(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PET IS DEAD!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
-  u_int8_t button = 0;
+  
+  uint8_t button = 0;
+  uint32_t lastTick = HAL_GetTick();
+  uint8_t flashState = 0;
 
-  while(button == 0) {button = Joystick_Read();}
+  /* Draw initial RESTART? prompt */
+  ILI9341_DrawString(60, 50, "TRY NOT TO KILL ME..... RESTART?", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+
+  /* Wait for a button press while flashing the text */
+  while (button == 0) {
+    button = Joystick_Read();
+
+    /* Toggle string color every 500ms */
+    if (HAL_GetTick() - lastTick >= 500) {
+      lastTick = HAL_GetTick();
+      flashState = !flashState;
+
+      uint16_t textColor = flashState ? ILI9341_COLOR_WHITE : ILI9341_COLOR_RED;
+      ILI9341_DrawString(60, 50, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
+    }
+
+    HAL_Delay(10);
+  }
+
+  /* Debounce: wait until all joystick inputs are released */
+  while (Joystick_Read() != 0) {
+    HAL_Delay(20);
+  }
+  HAL_Delay(50); /* Settling delay after release */
+
+  /* Reset pet stats */
   hunger = 100;
   happiness = 100;
   
@@ -293,13 +321,14 @@ static void drawMenu(void) {
 }
 
 static void drawStatBars(void) {
+  ILI9341_DrawString(3, 238, "HUNGER",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
   ILI9341_FillRect(3, 243, hunger, 4, ILI9341_COLOR_WHITE);
   ILI9341_FillRect(3 + hunger, 243, 100 - hunger, 4, ILI9341_COLOR_BLACK);
 
+  ILI9341_DrawString(137, 238, "HAPPINESS",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
   ILI9341_FillRect(137, 243, happiness, 4, ILI9341_COLOR_WHITE);
   ILI9341_FillRect(137 + happiness, 243, 100 - happiness, 4, ILI9341_COLOR_BLACK);
 }
-
 
 
 
