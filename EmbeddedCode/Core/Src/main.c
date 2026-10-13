@@ -73,6 +73,7 @@ static petState_t runStateDead(void);
 
 static void drawMenu(void);
 static void drawStatBars(void);
+void PlayPetSound(uint32_t duration);
 
 /* Joystick (B1) bit flags returned by Joystick_Read() */
 #define JOY_LEFT_MASK   (1U << 0)
@@ -159,6 +160,13 @@ int main(void)
   }
 }
 
+void PlayPetSound(uint32_t duration)
+{
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
+    HAL_Delay(duration);
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+}
+
 static petState_t runStateIdle(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PET IS IDLE.", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
@@ -202,6 +210,7 @@ static petState_t runStateIdle(void) {
 static petState_t runStateFeed(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+   PlayPetSound(150);
   HAL_Delay(2000);
   hunger = 100;
   return STATE_IDLE;
@@ -209,7 +218,10 @@ static petState_t runStateFeed(void) {
 
 static petState_t runStatePlay(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);  
+   PlayPetSound(100);  
+    HAL_Delay(100);    
+    PlayPetSound(100);  
   HAL_Delay(2000);
   happiness = 100;
   hunger -= 10;
@@ -403,6 +415,15 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
+
+
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
+
+GPIO_InitStruct.Pin = GPIO_PIN_0;
+GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+GPIO_InitStruct.Pull = GPIO_NOPULL;
+GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOG, USB_PowerSwitchOn_Pin|SMPS_V1_Pin|SMPS_EN_Pin|SMPS_SW_Pin, GPIO_PIN_RESET);
