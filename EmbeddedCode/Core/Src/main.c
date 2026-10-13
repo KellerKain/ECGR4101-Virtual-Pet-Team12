@@ -165,6 +165,8 @@ static petState_t runStateIdle(void) {
   
   uint8_t button = 0;
   uint8_t stateChanged = 0;
+  uint32_t lastTick = HAL_GetTick();
+  const uint32_t decayIntervalMs = 1000; /* Decrement stats every 1 second */
 
   while(button != JOY_CENTER_MASK) {
     button = Joystick_Read();
@@ -184,7 +186,33 @@ static petState_t runStateIdle(void) {
         break;
     }
 
-    if (stateChanged) drawMenu();
+    if (stateChanged) {
+      drawMenu();
+      stateChanged = 0;
+    }
+
+    /* Drain stats periodically over time */
+    if (HAL_GetTick() - lastTick >= decayIntervalMs) {
+      lastTick = HAL_GetTick();
+
+      if (hunger > 0) {
+        hunger--;
+      }
+      if (happiness > 0) {
+        happiness--;
+      }
+
+      /* Redraw stat bars to reflect the new values */
+      drawStatBars();
+
+      /* Check for starvation condition */
+      if (hunger == 0) {
+        return STATE_HUNGRY;
+      }
+    }
+
+    /* Small delay to prevent joystick debounciSTATE_HUNGRYng issues */
+    HAL_Delay(10);
   }
 
   switch(cursor) {
