@@ -37,10 +37,14 @@
 #include <sys/types.h>
 
 // Image Files: Keep limited for space
-#include "StandingRKnight_1.h"
-#include "KneelingRKnight_1.h"
-#include "FightingRKnight_1.h"
+#include "REM_1_IDLE.h"
+#include "REM_2_IDLE.h"
+#include "REM_3_IDLE.h"
 #include "stm32l4xx_hal.h"
+#include "stm32l4xx_hal_gpio.h"
+
+#define REM_SAD REM_1_IDLE
+#define REM_DEAD REM_1_IDLE
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
@@ -55,9 +59,10 @@ typedef enum {
   STATE_COUNT
 } petState_t;
 
-static u_int8_t happiness = 100;
-static u_int8_t hunger = 100;
-static u_int8_t cursor = 0;
+static uint8_t happiness = 100;
+static uint8_t hunger = 100;
+static uint8_t cursor = 0;
+volatile static uint8_t button = 0;
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
@@ -117,7 +122,7 @@ int main(void)
   HAL_Delay(2000);
 
   ILI9341_DrawRect(2, 250, 236, 68, ILI9341_COLOR_WHITE);    // Draw menu bar
-  ILI9341_DrawRect(2, 227, 236, 23, ILI9341_COLOR_WHITE);    // Draw stats bar
+  ILI9341_DrawRect(2, 227, 236, 24, ILI9341_COLOR_WHITE);    // Draw stats bar
   ILI9341_DrawRect(4, 238, 102, 10, ILI9341_COLOR_WHITE);    // Draw happiness bar
   ILI9341_DrawRect(134, 238, 102, 10, ILI9341_COLOR_WHITE);  // Draw hunger bar
   ILI9341_DrawString(4, 229, "HUNGER",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);       // Draw hunger label
@@ -162,26 +167,24 @@ int main(void)
 }
 
 static petState_t runStateIdle(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PET IS IDLE.", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
   
-  uint8_t button = 0;
   uint8_t stateChanged = 0;
   uint32_t lastTick = HAL_GetTick();
   const uint32_t decayIntervalMs = 1000; /* Decrement stats every 1 second */
 
   while(button != JOY_CENTER_MASK) {
-    button = Joystick_Read();
-
     switch(button) { 
       case JOY_RIGHT_MASK:
         cursor = (cursor + 1) % 5;
         stateChanged = 1;
+        button = 0;
         break;
 
       case JOY_LEFT_MASK:
-        cursor = (cursor == 0) ? 2 : cursor - 1;
+        cursor = (cursor == 0) ? 4 : cursor - 1;
         stateChanged = 1;
+        button = 0;
         break;
 
       default:
@@ -216,9 +219,15 @@ static petState_t runStateIdle(void) {
       }
     }
 
+    if(button == 0) ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_1_IDLE);
+    if(button == 0) ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_2_IDLE);
+    if(button == 0) ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_3_IDLE);
+
     /* Small delay to prevent joystick debounciSTATE_HUNGRYng issues */
     HAL_Delay(10);
   }
+
+  button = 0;
 
   switch(cursor) {
     case 0:
@@ -228,9 +237,11 @@ static petState_t runStateIdle(void) {
     case 2:
       return STATE_FEED;
     case 3:
-      return STATE_DEAD;
+      hunger = 0;
+      break;
     case 4:
-      return STATE_RUNAWAY;
+      happiness = 0;
+      break;
     default:
       return STATE_IDLE;
   }
@@ -249,7 +260,7 @@ static petState_t runStatePlay(void) {
   ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
   HAL_Delay(2000);
   happiness = 100;
-  hunger -= 10;
+  hunger = (hunger >= 0) ? hunger - 10: 0;
   return STATE_IDLE;
 }
 
@@ -257,15 +268,15 @@ static petState_t runStatePet(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
   HAL_Delay(2000);
-  happiness -= 10;
+  happiness = (happiness >= 0) ? happiness - 10: 0;
   return STATE_IDLE;
 }
 
 static petState_t runStateDead(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PET IS DEAD!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_DEAD);
+  HAL_Delay(2000);
+  ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
   
-  uint8_t button = 0;
   uint32_t lastTick = HAL_GetTick();
   uint8_t flashState = 0;
 
@@ -295,20 +306,26 @@ static petState_t runStateDead(void) {
   }
   HAL_Delay(50); /* Settling delay after release */
 
-  ILI9341_FillRect(0, 0, 240, 160, ILI9341_COLOR_BLACK);
+  ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
 
   /* Reset pet stats */
   hunger = 100;
   happiness = 100;
+  button = 0;
   
   return STATE_IDLE;
 }
 
 static petState_t runStateRunAway(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PET RAN AWAY!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+  ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
+  
+  // REM runs off screen
+  for(uint8_t i = 0; i < 220; i += 10) {
+    if(i < 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_SAD);
+    if(i >= 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, 220 - i, REM_SAD);
+    ILI9341_FillRect(30, i, REM_IDLE_WIDTH, 10, ILI9341_COLOR_BLACK);
+  }
 
-  uint8_t button = 0;
   uint32_t lastTick = HAL_GetTick();
   uint8_t flashState = 0;
 
@@ -341,6 +358,7 @@ static petState_t runStateRunAway(void) {
   /* Reset pet stats */
   hunger = 100;
   happiness = 100;
+  button = 0;
   
   return STATE_IDLE;
 }
@@ -582,6 +600,53 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* Configure PB0, PB6, PC7 as interrupt inputs */
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* Enable NVIC interrupts */
+  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+
+void EXTI0_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}
+
+void EXTI9_5_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_6);
+    HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_7);
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == GPIO_PIN_0)
+    {
+        button |= JOY_RIGHT_MASK;  // Set the button flag for PB0
+    }
+    else if (GPIO_Pin == GPIO_PIN_6)
+    {
+        button |= JOY_LEFT_MASK;  // Set the button flag for PB6
+    }
+    else if (GPIO_Pin == GPIO_PIN_7)
+    {
+        button |= JOY_CENTER_MASK;  // Set the button flag for PC7
+    }
 }
 
 /**
