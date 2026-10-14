@@ -1,7 +1,7 @@
 from PIL import Image
 
-INPUT = "KneelingRKnight_1.png"
-OUTPUT = "KneelingRKnight_1.h"
+INPUT = "PNGs-To-Convert/REM_SAD.png"
+OUTPUT = "REM_SAD.h"
 
 WIDTH = 180
 HEIGHT = 180
