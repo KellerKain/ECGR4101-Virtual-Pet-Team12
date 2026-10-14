@@ -40,10 +40,10 @@
 #include "REM_1_IDLE.h"
 #include "REM_2_IDLE.h"
 #include "REM_3_IDLE.h"
+#include "REM_SAD.h"
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
 
-#define REM_SAD REM_1_IDLE
 #define REM_DEAD REM_1_IDLE
 
 /* Private variables ---------------------------------------------------------*/
