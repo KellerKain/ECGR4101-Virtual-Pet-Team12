@@ -50,10 +50,9 @@ typedef enum {
   STATE_FEED,
   STATE_PLAY,
   STATE_PET,
-  STATE_HUNGRY,
   STATE_DEAD,
+  STATE_RUNAWAY,
   STATE_COUNT
-  STATE_RUNAWAY
 } petState_t;
 
 static u_int8_t happiness = 100;
@@ -69,7 +68,6 @@ static petState_t runStateIdle(void);
 static petState_t runStateFeed(void);
 static petState_t runStatePlay(void);
 static petState_t runStatePet(void);
-static petState_t runStateHungry(void);
 static petState_t runStateDead(void);
 static petState_t runStateRunAway(void);
 
@@ -118,11 +116,13 @@ int main(void)
   ILI9341_FillScreen(ILI9341_COLOR_BLACK);
   HAL_Delay(2000);
 
-  ILI9341_DrawRect(2, 250, 236, 68, ILI9341_COLOR_WHITE);
-  ILI9341_DrawRect(2, 242, 102, 6, ILI9341_COLOR_WHITE);
-  ILI9341_DrawRect(136, 242, 102, 6, ILI9341_COLOR_WHITE);
+  ILI9341_DrawRect(2, 250, 236, 68, ILI9341_COLOR_WHITE);    // Draw menu bar
+  ILI9341_DrawRect(2, 227, 236, 23, ILI9341_COLOR_WHITE);    // Draw stats bar
+  ILI9341_DrawRect(4, 238, 102, 10, ILI9341_COLOR_WHITE);    // Draw happiness bar
+  ILI9341_DrawRect(134, 238, 102, 10, ILI9341_COLOR_WHITE);  // Draw hunger bar
+  ILI9341_DrawString(4, 229, "HUNGER",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);       // Draw hunger label
+  ILI9341_DrawString(136, 229, "HAPPINESS",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);  // Draw happiness label
   drawMenu();
-  ILI9341_DrawString(98, 290, "KILL", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
 
   petState_t current_state = STATE_IDLE;
   petState_t next_state = STATE_IDLE;
@@ -145,9 +145,6 @@ int main(void)
         break;
       case STATE_PET:
         next_state = runStatePet();
-        break;
-      case STATE_HUNGRY:
-        next_state = runStateHungry();
         break;
       case STATE_DEAD:
         next_state = runStateDead();
@@ -178,7 +175,7 @@ static petState_t runStateIdle(void) {
 
     switch(button) { 
       case JOY_RIGHT_MASK:
-        cursor = (cursor + 1) % 3;
+        cursor = (cursor + 1) % 5;
         stateChanged = 1;
         break;
 
@@ -210,12 +207,12 @@ static petState_t runStateIdle(void) {
       /* Redraw stat bars to reflect the new values */
       drawStatBars();
 
-      if (hapiness == 0){
-        return STATE_RUNAWAY
+      if (happiness == 0){
+        return STATE_RUNAWAY;
       }
       /* Check for starvation condition */
       if (hunger == 0) {
-        return STATE_HUNGRY;
+        return STATE_DEAD;
       }
     }
 
@@ -230,6 +227,10 @@ static petState_t runStateIdle(void) {
       return STATE_PET;
     case 2:
       return STATE_FEED;
+    case 3:
+      return STATE_DEAD;
+    case 4:
+      return STATE_RUNAWAY;
     default:
       return STATE_IDLE;
   }
@@ -260,13 +261,6 @@ static petState_t runStatePet(void) {
   return STATE_IDLE;
 }
 
-static petState_t runStateHungry(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PET STARVED!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
-  HAL_Delay(2000);
-  return STATE_DEAD;
-}
-
 static petState_t runStateDead(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PET IS DEAD!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
@@ -276,8 +270,9 @@ static petState_t runStateDead(void) {
   uint8_t flashState = 0;
 
   /* Draw initial RESTART? prompt */
-  ILI9341_DrawString(60, 50, "TRY NOT TO KILL ME..... RESTART?", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
-
+  ILI9341_DrawString(64, 50, "TRY NOT TO", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+  ILI9341_DrawString(64, 70, "KILL ME...", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+  
   /* Wait for a button press while flashing the text */
   while (button == 0) {
     button = Joystick_Read();
@@ -288,7 +283,7 @@ static petState_t runStateDead(void) {
       flashState = !flashState;
 
       uint16_t textColor = flashState ? ILI9341_COLOR_WHITE : ILI9341_COLOR_RED;
-      ILI9341_DrawString(60, 50, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
+      ILI9341_DrawString(73, 110, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
     }
 
     HAL_Delay(10);
@@ -299,6 +294,8 @@ static petState_t runStateDead(void) {
     HAL_Delay(20);
   }
   HAL_Delay(50); /* Settling delay after release */
+
+  ILI9341_FillRect(0, 0, 240, 160, ILI9341_COLOR_BLACK);
 
   /* Reset pet stats */
   hunger = 100;
@@ -315,8 +312,8 @@ static petState_t runStateRunAway(void) {
   uint32_t lastTick = HAL_GetTick();
   uint8_t flashState = 0;
 
-  ILI9341_DrawString(60, 50, "TRY LOVING ME NEXT TIME........ RESTART?", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
-
+  ILI9341_DrawString(43, 50, "TRY LOVING ME", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+  ILI9341_DrawString(49, 70, "NEXT TIME...", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
 
   while (button == 0) {
     button = Joystick_Read();
@@ -327,7 +324,7 @@ static petState_t runStateRunAway(void) {
       flashState = !flashState;
 
       uint16_t textColor = flashState ? ILI9341_COLOR_WHITE : ILI9341_COLOR_RED;
-      ILI9341_DrawString(60, 50, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
+      ILI9341_DrawString(73, 110, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
     }
 
     HAL_Delay(10);
@@ -336,6 +333,9 @@ static petState_t runStateRunAway(void) {
   while (Joystick_Read() != 0) {
     HAL_Delay(20);
   }
+
+  ILI9341_FillRect(0, 0, 240, 160, ILI9341_COLOR_BLACK);
+
   HAL_Delay(50); /* Settling delay after release */
 
   /* Reset pet stats */
@@ -351,7 +351,9 @@ static void drawMenu(void) {
     if(cursor != 0) ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
     if(cursor != 1) ILI9341_DrawString(103, 260, "PET", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
     if(cursor != 2) ILI9341_DrawString(163, 260, "FEED", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
-    
+    if(cursor != 3) ILI9341_DrawString(45, 290, "KILL", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+    if(cursor != 4) ILI9341_DrawString(113, 290, "NEGLECT", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
+
     switch(cursor) {
       case 0:
         ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
@@ -365,17 +367,23 @@ static void drawMenu(void) {
         ILI9341_DrawString(163, 260, "FEED", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
         HAL_Delay(50);
         break;
+      case 3:
+        ILI9341_DrawString(45, 290, "KILL", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+        HAL_Delay(50);
+        break;
+      case 4:
+        ILI9341_DrawString(113, 290, "NEGLECT", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+        HAL_Delay(50);
+        break;
     }
 }
 
 static void drawStatBars(void) {
-  ILI9341_DrawString(3, 238, "HUNGER",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
-  ILI9341_FillRect(3, 243, hunger, 4, ILI9341_COLOR_WHITE);
-  ILI9341_FillRect(3 + hunger, 243, 100 - hunger, 4, ILI9341_COLOR_BLACK);
+  ILI9341_FillRect(5, 239, hunger, 8, ILI9341_COLOR_GREEN);
+  ILI9341_FillRect(5 + hunger, 239, 100 - hunger, 8, ILI9341_COLOR_BLACK);
 
-  ILI9341_DrawString(137, 238, "HAPPINESS",ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
-  ILI9341_FillRect(137, 243, happiness, 4, ILI9341_COLOR_WHITE);
-  ILI9341_FillRect(137 + happiness, 243, 100 - happiness, 4, ILI9341_COLOR_BLACK);
+  ILI9341_FillRect(135, 239, happiness, 8, ILI9341_COLOR_BLUE);
+  ILI9341_FillRect(135 + happiness, 239, 100 - happiness, 8, ILI9341_COLOR_BLACK);
 }
 
 
