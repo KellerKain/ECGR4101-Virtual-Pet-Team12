@@ -53,6 +53,7 @@ typedef enum {
   STATE_HUNGRY,
   STATE_DEAD,
   STATE_COUNT
+  STATE_RUNAWAY
 } petState_t;
 
 static u_int8_t happiness = 100;
@@ -70,6 +71,7 @@ static petState_t runStatePlay(void);
 static petState_t runStatePet(void);
 static petState_t runStateHungry(void);
 static petState_t runStateDead(void);
+static petState_t runStateRunAway(void);
 
 static void drawMenu(void);
 static void drawStatBars(void);
@@ -150,6 +152,9 @@ int main(void)
       case STATE_DEAD:
         next_state = runStateDead();
         break;
+      case STATE_RUNAWAY:
+        next_state = runStateRunAway();
+        break;
       default:
         next_state = STATE_IDLE;
         break;
@@ -205,6 +210,9 @@ static petState_t runStateIdle(void) {
       /* Redraw stat bars to reflect the new values */
       drawStatBars();
 
+      if (hapiness == 0){
+        return STATE_RUNAWAY
+      }
       /* Check for starvation condition */
       if (hunger == 0) {
         return STATE_HUNGRY;
@@ -298,6 +306,46 @@ static petState_t runStateDead(void) {
   
   return STATE_IDLE;
 }
+
+static petState_t runStateRunAway(void) {
+  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
+  ILI9341_DrawString(10, 10, "PET RAN AWAY!", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+
+  uint8_t button = 0;
+  uint32_t lastTick = HAL_GetTick();
+  uint8_t flashState = 0;
+
+  ILI9341_DrawString(60, 50, "TRY LOVING ME NEXT TIME........ RESTART?", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+
+
+  while (button == 0) {
+    button = Joystick_Read();
+
+    /* Toggle string color every 500ms */
+    if (HAL_GetTick() - lastTick >= 500) {
+      lastTick = HAL_GetTick();
+      flashState = !flashState;
+
+      uint16_t textColor = flashState ? ILI9341_COLOR_WHITE : ILI9341_COLOR_RED;
+      ILI9341_DrawString(60, 50, "RESTART?", textColor, ILI9341_COLOR_BLACK, 2);
+    }
+
+    HAL_Delay(10);
+  }
+
+  while (Joystick_Read() != 0) {
+    HAL_Delay(20);
+  }
+  HAL_Delay(50); /* Settling delay after release */
+
+  /* Reset pet stats */
+  hunger = 100;
+  happiness = 100;
+  
+  return STATE_IDLE;
+}
+
+
 
 static void drawMenu(void) {
     if(cursor != 0) ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
