@@ -116,6 +116,8 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
 
+  
+
   /* Initialize the LCD and show a splash screen */
   ILI9341_Init(&hspi1);
   ILI9341_FillScreen(ILI9341_COLOR_BLACK);
@@ -164,6 +166,67 @@ int main(void)
     
     current_state = next_state;
   }
+}
+
+/* Play a tone using PE9 and GPIO toggling */
+/** Play a tone using PE1 and GPIO toggling */
+static void Speaker_Tone(uint32_t halfPeriodMs, uint32_t durationMs)
+{
+    uint32_t startTime = HAL_GetTick();
+
+    if (halfPeriodMs == 0U)
+    {
+        halfPeriodMs = 1U;
+    }
+
+    while ((HAL_GetTick() - startTime) < durationMs)
+    {
+        HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_1);
+        HAL_Delay(halfPeriodMs);
+    }
+
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
+}
+
+static void Speaker_PlayFeedSound(void)
+{
+    Speaker_Tone(3, 100);
+    HAL_Delay(40);
+    Speaker_Tone(2, 100);
+    HAL_Delay(40);
+    Speaker_Tone(1, 150);
+}
+
+static void Speaker_PlayPlaySound(void)
+{
+    Speaker_Tone(1, 80);
+    HAL_Delay(40);
+    Speaker_Tone(2, 80);
+    HAL_Delay(40);
+    Speaker_Tone(1, 150);
+}
+
+static void Speaker_PlayPetSound(void)
+{
+    Speaker_Tone(2, 100);
+    HAL_Delay(50);
+    Speaker_Tone(1, 100);
+}
+
+static void Speaker_PlayDeadSound(void)
+{
+    Speaker_Tone(2, 250);
+    HAL_Delay(80);
+    Speaker_Tone(3, 350);
+}
+
+static void Speaker_PlayRunAwaySound(void)
+{
+    Speaker_Tone(1, 80);
+    HAL_Delay(40);
+    Speaker_Tone(2, 100);
+    HAL_Delay(40);
+    Speaker_Tone(3, 180);
 }
 
 static petState_t runStateIdle(void) {
@@ -250,6 +313,7 @@ static petState_t runStateIdle(void) {
 static petState_t runStateFeed(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+ Speaker_PlayFeedSound();
   HAL_Delay(2000);
   hunger = 100;
   return STATE_IDLE;
@@ -258,6 +322,7 @@ static petState_t runStateFeed(void) {
 static petState_t runStatePlay(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+ Speaker_PlayPlaySound();
   HAL_Delay(2000);
   happiness = 100;
   hunger = (hunger >= 0) ? hunger - 10: 0;
@@ -267,6 +332,7 @@ static petState_t runStatePlay(void) {
 static petState_t runStatePet(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+ Speaker_PlayPetSound();
   HAL_Delay(2000);
   happiness = (happiness >= 0) ? happiness - 10: 0;
   return STATE_IDLE;
@@ -274,6 +340,7 @@ static petState_t runStatePet(void) {
 
 static petState_t runStateDead(void) {
   ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_DEAD);
+  Speaker_PlayDeadSound();
   HAL_Delay(2000);
   ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
   
@@ -318,19 +385,20 @@ static petState_t runStateDead(void) {
 
 static petState_t runStateRunAway(void) {
   ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
-  
   // REM runs off screen
   for(uint8_t i = 0; i < 220; i += 10) {
     if(i < 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_SAD);
     if(i >= 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, 220 - i, REM_SAD);
     ILI9341_FillRect(30, i, REM_IDLE_WIDTH, 10, ILI9341_COLOR_BLACK);
   }
+   
 
   uint32_t lastTick = HAL_GetTick();
   uint8_t flashState = 0;
 
   ILI9341_DrawString(43, 50, "TRY LOVING ME", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
   ILI9341_DrawString(49, 70, "NEXT TIME...", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
+Speaker_PlayRunAwaySound();
 
   while (button == 0) {
     button = Joystick_Read();
@@ -531,6 +599,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOG_CLK_ENABLE();
   HAL_PWREx_EnableVddIO2();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE(); // Initialize PE9
+
+  /* Configure PE9 for the speaker */
+HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_RESET);
+
+GPIO_InitStruct.Pin = GPIO_PIN_1;
+GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+GPIO_InitStruct.Pull = GPIO_NOPULL;
+GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+
+HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LD3_Pin|LD2_Pin, GPIO_PIN_RESET);
