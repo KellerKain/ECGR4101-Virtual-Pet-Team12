@@ -43,11 +43,27 @@
 #include "REM_SAD.h"
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
+#include "stm32l4xx_hal_tim.h"
 
 #define REM_DEAD REM_1_IDLE
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
+
+TIM_HandleTypeDef htim6;
+
+static volatile uint8_t speakerActive = 0;
+
+typedef struct
+{
+    uint32_t frequency;
+    uint32_t duration;
+} SpeakerNote;
+
+static const SpeakerNote *currentSound = NULL;
+static uint8_t currentNote = 0;
+static uint8_t totalNotes = 0;
+static uint32_t noteStartTime = 0;
 
 typedef enum {
   STATE_IDLE = 0,
@@ -69,6 +85,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 
+static void MX_TIM6_Init(void);
+
 static petState_t runStateIdle(void);
 static petState_t runStateFeed(void);
 static petState_t runStatePlay(void);
@@ -78,6 +96,19 @@ static petState_t runStateRunAway(void);
 
 static void drawMenu(void);
 static void drawStatBars(void);
+
+static void Speaker_Tone(uint32_t frequency);
+static void Speaker_StartSound(const SpeakerNote *notes, uint8_t count);
+static void Speaker_Update(void);
+static void Speaker_UpdateIdleSound(void);
+
+static void Speaker_PlayFeedSound(void);
+static void Speaker_PlayPlaySound(void);
+static void Speaker_PlayPetSound(void);
+static void Speaker_PlayDeadSound(void);
+static void Speaker_PlayRunAwaySound(void);
+static void Speaker_PlayIdleSound(void);
+static void Speaker_Delay(uint32_t durationMs);
 
 /* Joystick (B1) bit flags returned by Joystick_Read() */
 #define JOY_LEFT_MASK   (1U << 0)
@@ -115,13 +146,13 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_SPI1_Init();
-
+  MX_TIM6_Init();
   
 
   /* Initialize the LCD and show a splash screen */
   ILI9341_Init(&hspi1);
   ILI9341_FillScreen(ILI9341_COLOR_BLACK);
-  HAL_Delay(2000);
+  Speaker_Delay(2000);
 
   ILI9341_DrawRect(2, 250, 236, 68, ILI9341_COLOR_WHITE);    // Draw menu bar
   ILI9341_DrawRect(2, 227, 236, 24, ILI9341_COLOR_WHITE);    // Draw stats bar
@@ -138,6 +169,7 @@ int main(void)
   while (1)
   {
     drawStatBars();
+    Speaker_Update();
     
     switch (current_state)
     {
@@ -170,63 +202,156 @@ int main(void)
 
 /* Play a tone using PE9 and GPIO toggling */
 /** Play a tone using PE1 and GPIO toggling */
-static void Speaker_Tone(uint32_t halfPeriodMs, uint32_t durationMs)
+static void Speaker_Tone(uint32_t frequency)
+{
+    HAL_TIM_Base_Stop_IT(&htim6);
+    speakerActive = 0;
+
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
+
+    if (frequency == 0)
+    {
+        return;
+    }
+
+    uint32_t timerClock = HAL_RCC_GetPCLK1Freq();
+
+    if ((RCC->CFGR & RCC_CFGR_PPRE1) != 0)
+    {
+        timerClock *= 2;
+    }
+
+    uint32_t timerTick = timerClock / (htim6.Init.Prescaler + 1);
+    uint32_t period = timerTick / (frequency * 2);
+
+    if (period == 0)
+    {
+        period = 1;
+    }
+
+    __HAL_TIM_SET_AUTORELOAD(&htim6, period - 1);
+    __HAL_TIM_SET_COUNTER(&htim6, 0);
+    __HAL_TIM_CLEAR_FLAG(&htim6, TIM_FLAG_UPDATE);
+
+    speakerActive = 1;
+    HAL_TIM_Base_Start_IT(&htim6);
+}
+
+static void Speaker_StartSound(const SpeakerNote *notes, uint8_t count)
+{
+    if (count == 0)
+    {
+        return;
+    }
+
+    currentSound = notes;
+    totalNotes = count;
+    currentNote = 0;
+    noteStartTime = HAL_GetTick();
+
+    Speaker_Tone(currentSound[0].frequency);
+}
+static void Speaker_Update(void)
+{
+    if (currentSound == NULL)
+    {
+        return;
+    }
+
+    uint32_t currentTime = HAL_GetTick();
+
+    if ((uint32_t)(currentTime - noteStartTime) >= currentSound[currentNote].duration)
+    {
+        currentNote++;
+
+        if (currentNote >= totalNotes)
+        {
+            Speaker_Tone(0);
+            currentSound = NULL;
+            return;
+        }
+
+        noteStartTime = currentTime;
+        Speaker_Tone(currentSound[currentNote].frequency);
+    }
+}
+
+static void Speaker_Delay(uint32_t durationMs)
 {
     uint32_t startTime = HAL_GetTick();
 
-    if (halfPeriodMs == 0U)
+    while (HAL_GetTick() - startTime < durationMs)
     {
-        halfPeriodMs = 1U;
+        Speaker_Update();
+        HAL_Delay(1);
     }
-
-    while ((HAL_GetTick() - startTime) < durationMs)
-    {
-        HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_1);
-        HAL_Delay(halfPeriodMs);
-    }
-
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
 }
+
+static const SpeakerNote feedSound[] = {
+    {500, 100},
+    {0, 40},
+    {750, 100},
+    {0, 40},
+    {1000, 150}
+};
+
+static const SpeakerNote playSound[] = {
+    {1000, 80},
+    {0, 40},
+    {600, 80},
+    {0, 40},
+    {1200, 150}
+};
+
+static const SpeakerNote petSound[] = {
+    {600, 100},
+    {0, 50},
+    {900, 100}
+};
+
+static const SpeakerNote deadSound[] = {
+    {600, 250},
+    {0, 80},
+    {300, 350}
+};
+
+static const SpeakerNote runAwaySound[] = {
+    {1400, 35},
+    {0, 25},
+    {1100, 35},
+    {0, 25},
+    {1500, 30},
+    {0, 20},
+    {1000, 35},
+    {0, 20},
+    {800, 40},
+    {0, 20},
+    {600, 45}
+};
 
 static void Speaker_PlayFeedSound(void)
 {
-    Speaker_Tone(3, 100);
-    HAL_Delay(40);
-    Speaker_Tone(2, 100);
-    HAL_Delay(40);
-    Speaker_Tone(1, 150);
+    Speaker_StartSound(feedSound, sizeof(feedSound) / sizeof(feedSound[0]));
 }
 
 static void Speaker_PlayPlaySound(void)
 {
-    Speaker_Tone(1, 80);
-    HAL_Delay(40);
-    Speaker_Tone(2, 80);
-    HAL_Delay(40);
-    Speaker_Tone(1, 150);
+    Speaker_StartSound(playSound, sizeof(playSound) / sizeof(playSound[0]));
 }
 
 static void Speaker_PlayPetSound(void)
 {
-    Speaker_Tone(2, 100);
-    HAL_Delay(50);
-    Speaker_Tone(1, 100);
+    Speaker_StartSound(petSound, sizeof(petSound) / sizeof(petSound[0]));
 }
 
 static void Speaker_PlayDeadSound(void)
 {
-    Speaker_Tone(2, 250);
-    HAL_Delay(80);
-    Speaker_Tone(3, 350);
+    Speaker_StartSound(deadSound, sizeof(deadSound) / sizeof(deadSound[0]));
 }
 
 static void Speaker_PlayRunAwaySound(void)
 {
-    Speaker_Tone(1, 80);
-    HAL_Delay(40);
-    Speaker_Tone(2, 100);
-    HAL_Delay(40);
-    Speaker_Tone(3, 180);
+    Speaker_StartSound(runAwaySound, sizeof(runAwaySound) / sizeof(runAwaySound[0]));
 }
 
 static petState_t runStateIdle(void) {
@@ -237,6 +362,9 @@ static petState_t runStateIdle(void) {
   const uint32_t decayIntervalMs = 1000; /* Decrement stats every 1 second */
 
   while(button != JOY_CENTER_MASK) {
+
+    Speaker_Update();
+
     switch(button) { 
       case JOY_RIGHT_MASK:
         cursor = (cursor + 1) % 5;
@@ -314,7 +442,7 @@ static petState_t runStateFeed(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
  Speaker_PlayFeedSound();
-  HAL_Delay(2000);
+  Speaker_Delay(2000);
   hunger = 100;
   return STATE_IDLE;
 }
@@ -323,7 +451,7 @@ static petState_t runStatePlay(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
  Speaker_PlayPlaySound();
-  HAL_Delay(2000);
+  Speaker_Delay(2000);
   happiness = 100;
   hunger = (hunger >= 0) ? hunger - 10: 0;
   return STATE_IDLE;
@@ -333,7 +461,7 @@ static petState_t runStatePet(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
   ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
  Speaker_PlayPetSound();
-  HAL_Delay(2000);
+  Speaker_Delay(2000);
   happiness = (happiness >= 0) ? happiness - 10: 0;
   return STATE_IDLE;
 }
@@ -341,7 +469,7 @@ static petState_t runStatePet(void) {
 static petState_t runStateDead(void) {
   ILI9341_DrawImage(30, 10, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_DEAD);
   Speaker_PlayDeadSound();
-  HAL_Delay(2000);
+  Speaker_Delay(2000);
   ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
   
   uint32_t lastTick = HAL_GetTick();
@@ -385,8 +513,10 @@ static petState_t runStateDead(void) {
 
 static petState_t runStateRunAway(void) {
   ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
+  Speaker_PlayRunAwaySound();
   // REM runs off screen
   for(uint8_t i = 0; i < 220; i += 10) {
+    Speaker_Update();
     if(i < 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_SAD);
     if(i >= 40) ILI9341_DrawImage(30, i, REM_IDLE_WIDTH, 220 - i, REM_SAD);
     ILI9341_FillRect(30, i, REM_IDLE_WIDTH, 10, ILI9341_COLOR_BLACK);
@@ -398,7 +528,6 @@ static petState_t runStateRunAway(void) {
 
   ILI9341_DrawString(43, 50, "TRY LOVING ME", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
   ILI9341_DrawString(49, 70, "NEXT TIME...", ILI9341_COLOR_RED, ILI9341_COLOR_BLACK, 2);
-Speaker_PlayRunAwaySound();
 
   while (button == 0) {
     button = Joystick_Read();
@@ -478,7 +607,24 @@ static void drawStatBars(void) {
 
 
 
+static void MX_TIM6_Init(void)
+{
+    __HAL_RCC_TIM6_CLK_ENABLE();
 
+    htim6.Instance = TIM6;
+    htim6.Init.Prescaler = 55;
+    htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim6.Init.Period = 499;
+    htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+
+    if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
+}
 
 
 
@@ -699,6 +845,19 @@ HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+}
+
+void TIM6_DAC_IRQHandler(void)
+{
+    HAL_TIM_IRQHandler(&htim6);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM6 && speakerActive)
+    {
+        HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_1);
+    }
 }
 
 void EXTI0_IRQHandler(void)
