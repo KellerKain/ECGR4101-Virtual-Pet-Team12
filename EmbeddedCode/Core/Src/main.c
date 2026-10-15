@@ -169,8 +169,8 @@ int main(void)
 }
 
 /* Play a tone using PE9 and GPIO toggling */
-static void Speaker_Tone(uint32_t halfPeriodMs,
-                         uint32_t durationMs)
+/** Play a tone using PE1 and GPIO toggling */
+static void Speaker_Tone(uint32_t halfPeriodMs, uint32_t durationMs)
 {
     uint32_t startTime = HAL_GetTick();
 
@@ -181,12 +181,11 @@ static void Speaker_Tone(uint32_t halfPeriodMs,
 
     while ((HAL_GetTick() - startTime) < durationMs)
     {
-        HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_9);
+        HAL_GPIO_TogglePin(GPIOE, GPIO_PIN_1);
         HAL_Delay(halfPeriodMs);
     }
 
-  
-    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_1, GPIO_PIN_RESET);
 }
 
 static void Speaker_PlayFeedSound(void)
@@ -605,7 +604,7 @@ static void MX_GPIO_Init(void)
   /* Configure PE9 for the speaker */
 HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_RESET);
 
-GPIO_InitStruct.Pin = GPIO_PIN_9;
+GPIO_InitStruct.Pin = GPIO_PIN_1;
 GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
 GPIO_InitStruct.Pull = GPIO_NOPULL;
 GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
