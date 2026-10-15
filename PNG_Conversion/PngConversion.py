@@ -1,7 +1,7 @@
 from PIL import Image
 
-INPUT = "PNGs-To-Convert/REM_SAD.png"
-OUTPUT = "REM_SAD.h"
+INPUT = "PNGs-To-Convert/REM_Happy.png"
+OUTPUT = "REM_Happy.h"
 
 WIDTH = 180
 HEIGHT = 180

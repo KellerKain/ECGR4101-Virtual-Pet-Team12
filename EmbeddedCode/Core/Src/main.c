@@ -41,6 +41,7 @@
 #include "REM_2_IDLE.h"
 #include "REM_3_IDLE.h"
 #include "REM_SAD.h"
+#include "REM_Happy.h"
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
 #include "stm32l4xx_hal_tim.h"
@@ -439,13 +440,38 @@ static petState_t runStateIdle(void) {
 }
 
 static petState_t runStateFeed(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
- Speaker_PlayFeedSound();
-  Speaker_Delay(2000);
-  hunger = 100;
-  return STATE_IDLE;
+    ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
+    ILI9341_DrawString(10, 10, "FEEDING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+
+    Speaker_PlayFeedSound();
+
+    uint32_t startTime = HAL_GetTick();
+    uint32_t lastFrameTime = startTime;
+    int y = 40;
+
+    ILI9341_DrawImage(30, y, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_Happy);
+
+    while (HAL_GetTick() - startTime < 2000) {
+        Speaker_Update();
+
+        if (HAL_GetTick() - lastFrameTime >= 400 && y > 20) {
+            lastFrameTime = HAL_GetTick();
+
+            // Clear bottom strip from previous position
+            ILI9341_FillRect(30, y + REM_IDLE_HEIGHT - 10,
+                             REM_IDLE_WIDTH, 10, ILI9341_COLOR_BLACK);
+
+            y -= 10;
+
+            // Draw image at new position
+            ILI9341_DrawImage(30, y, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_Happy);
+        }
+    }
+
+    hunger = 100;
+    return STATE_IDLE;
 }
+
 
 static petState_t runStatePlay(void) {
   ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
@@ -458,12 +484,36 @@ static petState_t runStatePlay(void) {
 }
 
 static petState_t runStatePet(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
- Speaker_PlayPetSound();
-  Speaker_Delay(2000);
-  happiness = (happiness >= 0) ? happiness - 10: 0;
-  return STATE_IDLE;
+    ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
+    ILI9341_DrawString(10, 10, "PETTING PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
+
+    Speaker_PlayPetSound();
+
+    uint32_t startTime = HAL_GetTick();
+    uint32_t lastFrameTime = startTime;
+    int y = 40;
+
+    ILI9341_DrawImage(30, y, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_Happy);
+
+    while (HAL_GetTick() - startTime < 2000) {
+        Speaker_Update();
+
+        if (HAL_GetTick() - lastFrameTime >= 400 && y > 20) {
+            lastFrameTime = HAL_GetTick();
+
+            // Clear bottom strip from previous position
+            ILI9341_FillRect(30, y + REM_IDLE_HEIGHT - 10,
+                             REM_IDLE_WIDTH, 10, ILI9341_COLOR_BLACK);
+
+            y -= 10;
+
+            // Draw image at new position
+            ILI9341_DrawImage(30, y, REM_IDLE_WIDTH, REM_IDLE_HEIGHT, REM_Happy);
+        }
+    }
+
+    happiness = 100;
+    return STATE_IDLE;
 }
 
 static petState_t runStateDead(void) {
