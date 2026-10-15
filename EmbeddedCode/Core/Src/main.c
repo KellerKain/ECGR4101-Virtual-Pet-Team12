@@ -32,21 +32,26 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include <stdlib.h>
+#include <time.h>
+#include <stdbool.h>
 #include "ili9341.h"
 #include "gfx01m2_conf.h"
 #include <sys/types.h>
+#include "stm32l4xx_hal_adc.h"
+#include "stm32l4xx_hal_adc_ex.h"
 
 // Image Files: Keep limited for space
 #include "REM_1_IDLE.h"
 #include "REM_2_IDLE.h"
 #include "REM_3_IDLE.h"
 #include "REM_SAD.h"
+#include "REM_DEAD.h"
+#include "REM_HAPPY_50x50.h"
 #include "REM_Happy.h"
 #include "stm32l4xx_hal.h"
 #include "stm32l4xx_hal_gpio.h"
 #include "stm32l4xx_hal_tim.h"
-
-#define REM_DEAD REM_1_IDLE
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
@@ -97,6 +102,8 @@ static petState_t runStateRunAway(void);
 
 static void drawMenu(void);
 static void drawStatBars(void);
+static bool checkWinner(char board[3][3]);
+uint32_t ADC_ReadValue(void);
 
 static void Speaker_Tone(uint32_t frequency);
 static void Speaker_StartSound(const SpeakerNote *notes, uint8_t count);
@@ -137,7 +144,7 @@ static uint8_t Joystick_Read(void)
   * @retval int
   */
 int main(void)
-{
+{ 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
 
@@ -197,6 +204,7 @@ int main(void)
         break;
     }
     
+    button = 0;  // Reset button state after each state execution
     current_state = next_state;
   }
 }
@@ -437,6 +445,8 @@ static petState_t runStateIdle(void) {
     default:
       return STATE_IDLE;
   }
+
+  return STATE_IDLE;
 }
 
 static petState_t runStateFeed(void) {
@@ -474,12 +484,81 @@ static petState_t runStateFeed(void) {
 
 
 static petState_t runStatePlay(void) {
-  ILI9341_FillRect(0, 0, 240, 100, ILI9341_COLOR_BLACK);
-  ILI9341_DrawString(10, 10, "PLAYING WITH PET...", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 1);
- Speaker_PlayPlaySound();
-  Speaker_Delay(2000);
-  happiness = 100;
-  hunger = (hunger >= 0) ? hunger - 10: 0;
+  srand(HAL_GetTick());  // Seed the random number generator with the current tick value
+  
+  char board[3][3] = { {' ', ' ', ' '},
+                      {' ', ' ', ' '},
+                      {' ', ' ', ' '} };
+  
+  bool winner = false;
+  bool playersTurn = rand() % 2;
+  int index = 0;
+  uint32_t adcValue = 0;
+  bool validMove = false;
+  int lastIndex = 0; // To track the last index drawn
+
+  ILI9341_FillRect(0, 0, 240, 220, ILI9341_COLOR_BLACK);
+
+  // Draw Tic-Tac-Toe grid
+  ILI9341_FillRect(87, 113, 67, 2, ILI9341_COLOR_WHITE);
+  ILI9341_FillRect(87, 145, 67, 2, ILI9341_COLOR_WHITE);
+  ILI9341_FillRect(107, 87, 2, 85, ILI9341_COLOR_WHITE);
+  ILI9341_FillRect(133, 87, 2, 85, ILI9341_COLOR_WHITE);
+  ILI9341_DrawImage(10, 10, 50, 50, REM_HAPPY_50x50);
+  
+  while(!winner) {
+    if(playersTurn) {
+      playersTurn = false;
+      // Draw Board
+      
+      while((button & JOY_CENTER_MASK == 0) && !validMove) {
+        adcValue = ADC_ReadValue();
+        lastIndex = index; // Store the last index before updating
+        index = adcValue / (4096 / 9); // Map ADC value to index 0-8
+
+        if(lastIndex != index) {
+          // Clear the previous 'X' if it was drawn
+          if(board[lastIndex / 3][lastIndex % 3] == ' ') {
+            ILI9341_DrawChar(87 + (lastIndex % 3) * 26, 87 + (lastIndex / 3) * 32, 'X', ILI9341_COLOR_BLACK, ILI9341_COLOR_BLACK, 3);
+          }
+
+          if(board[index / 3][index % 3] == ' ') {
+            ILI9341_DrawChar(87 + (index % 3) * 26, 87 + (index / 3) * 32, 'X', ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 3);
+          }
+        }
+
+        if(button & JOY_CENTER_MASK) {
+          if(board[index / 3][index % 3] == ' ') {
+            board[index / 3][index % 3] = 'X'; // Player is 'X'
+            validMove = true;
+          }
+        }
+      }
+    } else {
+      playersTurn = true;
+      index = rand() % 9;
+
+      while(board[index / 3][index % 3] != ' ') {
+        index = rand() % 9;
+      }
+
+      board[index / 3][index % 3] = 'O'; // Computer is 'O'
+      playersTurn = true;
+      
+      // Draw Board
+      for(uint8_t i = 0; i < 3; i++) {
+        for(uint8_t j = 0; j < 3; j++) {
+          ILI9341_DrawChar(87 + j * 26, 87 + i * 32, 'X', ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 3);
+        }
+      }
+    }
+
+    // Check for winner or draw
+    winner = checkWinner(board);
+  }
+
+  HAL_Delay(5000);
+  button = 0;
   return STATE_IDLE;
 }
 
@@ -610,8 +689,6 @@ static petState_t runStateRunAway(void) {
   return STATE_IDLE;
 }
 
-
-
 static void drawMenu(void) {
     if(cursor != 0) ILI9341_DrawString(31, 260, "PLAY", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
     if(cursor != 1) ILI9341_DrawString(103, 260, "PET", ILI9341_COLOR_WHITE, ILI9341_COLOR_BLACK, 2);
@@ -651,9 +728,35 @@ static void drawStatBars(void) {
   ILI9341_FillRect(135 + happiness, 239, 100 - happiness, 8, ILI9341_COLOR_BLACK);
 }
 
+static bool checkWinner(char board[3][3]) {
+  // Check rows and columns
+  for (int i = 0; i < 3; i++) {
+    if ((board[i][0] == board[i][1] && board[i][1] == board[i][2] && board[i][0] != ' ') ||
+        (board[0][i] == board[1][i] && board[1][i] == board[2][i] && board[0][i] != ' ')) {
+      return true;
+    }
+  }
 
+  // Check diagonals
+  if ((board[0][0] == board[1][1] && board[1][1] == board[2][2] && board[0][0] != ' ') ||
+      (board[0][2] == board[1][1] && board[1][1] == board[2][0] && board[0][2] != ' ')) {
+    return true;
+  }
 
+  // Check for draw
+  bool draw = true;
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) {
+      if (board[i][j] == ' ') {
+        draw = false;
+        break;
+      }
+    }
+    if (!draw) break;
+  }
 
+  return draw;
+}
 
 
 
@@ -675,16 +778,6 @@ static void MX_TIM6_Init(void)
     HAL_NVIC_SetPriority(TIM6_DAC_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(TIM6_DAC_IRQn);
 }
-
-
-
-
-
-
-
-
-
-
 
 /**
   * @brief SPI1 Initialization Function
@@ -774,10 +867,22 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCCLKSOURCE_SYSCLK;
+
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+      Error_Handler();
+  }
+
   /** Enable MSI Auto calibration
   */
   HAL_RCCEx_EnableMSIPLLMode();
 }
+
+ADC_HandleTypeDef hadc3;
 
 /**
   * @brief GPIO Initialization Function
@@ -895,6 +1000,60 @@ HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
 
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+    /* Enable peripheral clocks */
+    __HAL_RCC_GPIOF_CLK_ENABLE();
+    __HAL_RCC_ADC_CLK_ENABLE();
+
+    /* Configure PF3 as analog input */
+    GPIO_InitStruct.Pin = GPIO_PIN_3;
+    GPIO_InitStruct.Mode = GPIO_MODE_ANALOG_ADC_CONTROL;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+
+    /* Configure ADC3 */
+    hadc3.Instance = ADC3;
+    hadc3.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+    hadc3.Init.Resolution = ADC_RESOLUTION_12B;
+    hadc3.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+    hadc3.Init.ScanConvMode = ADC_SCAN_DISABLE;
+    hadc3.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+    hadc3.Init.ContinuousConvMode = DISABLE;
+    hadc3.Init.NbrOfConversion = 1;
+    hadc3.Init.DiscontinuousConvMode = DISABLE;
+    hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+    hadc3.Init.ExternalTrigConvEdge =
+        ADC_EXTERNALTRIGCONVEDGE_NONE;
+    hadc3.Init.DMAContinuousRequests = DISABLE;
+    hadc3.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+    hadc3.Init.OversamplingMode = DISABLE;
+
+    if (HAL_ADC_Init(&hadc3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Select ADC3 channel 6 */
+    sConfig.Channel = ADC_CHANNEL_6;
+    sConfig.Rank = ADC_REGULAR_RANK_1;
+    sConfig.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+    sConfig.SingleDiff = ADC_SINGLE_ENDED;
+    sConfig.OffsetNumber = ADC_OFFSET_NONE;
+    sConfig.Offset = 0;
+
+    if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
+    
+    /* Calibrate ADC */
+    if (HAL_ADCEx_Calibration_Start(
+            &hadc3, ADC_SINGLE_ENDED) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 void TIM6_DAC_IRQHandler(void)
@@ -935,6 +1094,34 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
     {
         button |= JOY_CENTER_MASK;  // Set the button flag for PC7
     }
+}
+
+uint32_t ADC_ReadValue(void)
+{
+    uint32_t adcValue = 0;
+
+    /* Start ADC conversion */
+    if (HAL_ADC_Start(&hadc3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Wait for conversion to complete */
+    if (HAL_ADC_PollForConversion(&hadc3, HAL_MAX_DELAY) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Get the converted value */
+    adcValue = HAL_ADC_GetValue(&hadc3);
+
+    /* Stop ADC conversion */
+    if (HAL_ADC_Stop(&hadc3) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    return adcValue;
 }
 
 /**
